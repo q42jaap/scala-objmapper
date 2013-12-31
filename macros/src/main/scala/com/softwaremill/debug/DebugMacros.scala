@@ -9,15 +9,53 @@ trait ObjMapper[TFrom, TTo] {
 }
 
 
-
-
 private abstract class Helper[C <: Context, TFrom, TTo](val c: C) {
+
   import c.universe._
 
-  protected def TFrom: c.Type
-  protected def TTo: c.Type
+  protected def fromType: c.Type
+
+  protected def toType: c.Type
+
+  private def fromTypeName = fromType.typeSymbol.name
+
+  private def toTypeName = toType.typeSymbol.name
 
   def mapValueBody: c.Expr[TTo] = ???
+
+  def caseClassParamsOf(typ: c.Type) = {
+    c.echo(c.enclosingPosition, s"typ: $typ")
+    c.echo(c.enclosingPosition, s"${typ.declarations}")
+    val cTor = typ.declaration(nme.CONSTRUCTOR).asMethod
+    val params: List[Symbol] = cTor.paramss.flatten
+    params
+  }
+
+  def checkSuperSet = {
+    // Retrieve the params for the From Type
+    val fromParams = caseClassParamsOf(fromType)
+
+    // Find the parameters of the Published case class
+    val toParams = caseClassParamsOf(toType)
+
+
+    // Find the first parameter name that doesn't match
+    val wrongProperties = toParams.filter {
+      toParam =>
+        val hasFromBrother = fromParams.exists {
+          fromParam =>
+            toParam.name.equals(fromParam.name) && toParam.typeSignature.equals(fromParam.typeSignature)
+        }
+        !hasFromBrother
+    }
+
+    if (!wrongProperties.isEmpty) {
+      val offendingProperties = wrongProperties.map(_.name).mkString(",")
+      c.abort(c.enclosingPosition, s"Could not create ObjMapper[$fromTypeName, $toTypeName], properties don't match: ${offendingProperties}")
+    }
+  }
+
+
 }
 
 object DebugMacros {
@@ -25,13 +63,15 @@ object DebugMacros {
   def strictMapper[TFrom, TTo](): ObjMapper[TFrom, TTo] = macro strictMapperImpl[TFrom, TTo]
 
   private def mkHelper[TFrom: c.WeakTypeTag, TTo: c.WeakTypeTag](c: Context) = new Helper[c.type, TFrom, TTo](c) {
-    val TFrom = c.weakTypeOf[TFrom]
-    val TTo = c.weakTypeOf[TTo]
+    val fromType = c.weakTypeOf[TFrom]
+    val toType = c.weakTypeOf[TTo]
   }
 
-  def strictMapperImpl[TFrom, TTo](c : Context)(): c.Expr[ObjMapper[TFrom,TTo]] = {
+  def strictMapperImpl[TFrom: c.WeakTypeTag, TTo: c.WeakTypeTag](c: Context)(): c.Expr[ObjMapper[TFrom, TTo]] = {
     import c.universe._
     val helper = mkHelper[TFrom, TTo](c)
+    helper.checkSuperSet
+
     val body = helper.mapValueBody
 
     reify {

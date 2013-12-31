@@ -1,8 +1,13 @@
 package com.softwaremill.debug
 
+case class Xxx(aap: String)
+case class Yyy(noot:String)
+
 object DebugExample extends App {
   def tutorialExamples() {
 	  import DebugMacros._
+
+    val aap = strictMapper[Xxx,Yyy]
 	
 	  h1("Tutorial Examples")
 
